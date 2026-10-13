@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paperazzi</title>
+<style>
+  :root {
+    --bg: #f4f4f2;
+    --pane: #ffffff;
+    --border: #dcdcd8;
+    --text: #1f1f1d;
+    --muted: #6b6b66;
+    --accent: #2f6fde;
+    --ok: #1f8a4c;
+    --err: #c0392b;
+    --tile: #ececea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161615;
+      --pane: #222220;
+      --border: #3a3a37;
+      --text: #ececea;
+      --muted: #9a9a94;
+      --accent: #5b8ff0;
+      --ok: #4cc27f;
+      --err: #ef6b5b;
+      --tile: #2c2c2a;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    padding: 16px;
+  }
+  @media (max-width: 800px) {
+    body { grid-template-columns: 1fr; grid-auto-rows: minmax(300px, 1fr); }
+  }
+  .pane {
+    background: var(--pane);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .pane header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+  }
+  .actions { display: flex; gap: 8px; }
+  .stage {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    position: relative;
+  }
+  video {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
+  video.mirror { transform: scaleX(-1); }
+  .placeholder {
+    position: absolute;
+    color: #aaa;
+    text-align: center;
+    padding: 20px;
+    max-width: 420px;
+  }
+  #gallery {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 12px;
+    display: grid;
+    gap: 12px;
+    position: relative;
+  }
+  #gallery .placeholder { position: static; color: var(--muted); grid-column: 1 / -1; margin: 40px auto; }
+  .card {
+    background: var(--tile);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+  }
+  .card img {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    object-fit: contain;
+    background: #000;
+    display: block;
+  }
+  .card .bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 6px 8px;
+  }
+  .card .num { color: var(--muted); font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .actions { flex-shrink: 0; }
+  footer {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-top: 1px solid var(--border);
+  }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: 0;
+    border-radius: 8px;
+    padding: 9px 18px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button.secondary {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  button.small { padding: 4px 10px; font-size: 12px; font-weight: 500; }
+  label { color: var(--muted); font-weight: 400; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  .hint { color: var(--muted); font-size: 12px; }
+  #snapsPane { position: relative; }
+  #cropper {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    background: var(--pane);
+    display: flex;
+    flex-direction: column;
+  }
+  #cropper[hidden] { display: none; }
+  #cropStage {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    padding: 12px;
+  }
+  #cropWrap {
+    position: relative;
+    line-height: 0;
+    overflow: hidden;
+    cursor: crosshair;
+    user-select: none;
+    touch-action: none;
+  }
+  #cropImg { display: block; -webkit-user-drag: none; }
+  #cropSel {
+    position: absolute;
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
+    cursor: move;
+  }
+  #status { font-size: 13px; color: var(--muted); }
+  #status.ok { color: var(--ok); }
+  #status.err { color: var(--err); }
+</style>
+</head>
+<body>
+
+  <section class="pane">
+    <header>
+      <span>Camera</span>
+      <label><input type="checkbox" id="mirror" checked> Mirror view</label>
+    </header>
+    <div class="stage">
+      <video id="video" class="mirror" autoplay playsinline muted></video>
+      <div class="placeholder" id="camMsg">Starting camera…</div>
+    </div>
+    <footer>
+      <button id="snap" disabled>Snap</button>
+      <span class="hint">or press Space · each snap is copied as you take it</span>
+    </footer>
+  </section>
+
+  <section class="pane" id="snapsPane">
+    <header>
+      <span id="count">Snaps</span>
+      <div class="actions">
+        <button id="copyAll" class="small" disabled>Copy all</button>
+        <button id="clear" class="small secondary" disabled>Clear</button>
+      </div>
+    </header>
+    <div id="gallery">
+      <div class="placeholder" id="prevMsg">Your snaps will appear here.</div>
+    </div>
+    <footer>
+      <span id="status"></span>
+    </footer>
+
+    <div id="cropper" hidden>
+      <header>
+        <span id="cropTitle">Crop</span>
+        <span class="hint">Drag to select · drag the box to move it</span>
+      </header>
+      <div id="cropStage">
+        <div id="cropWrap">
+          <img id="cropImg" alt="">
+          <div id="cropSel" hidden></div>
+        </div>
+      </div>
+      <footer>
+        <button id="cropApply" disabled>Crop &amp; Copy</button>
+        <button id="cropCancel" class="secondary">Cancel</button>
+        <button id="cropRestore" class="secondary">Restore original</button>
+      </footer>
+    </div>
+  </section>
+
+<script>
+  const video = document.getElementById('video');
+  const snapBtn = document.getElementById('snap');
+  const copyAllBtn = document.getElementById('copyAll');
+  const clearBtn = document.getElementById('clear');
+  const mirrorBox = document.getElementById('mirror');
+  const camMsg = document.getElementById('camMsg');
+  const prevMsg = document.getElementById('prevMsg');
+  const gallery = document.getElementById('gallery');
+  const countEl = document.getElementById('count');
+  const statusEl = document.getElementById('status');
+
+  const cropper = document.getElementById('cropper');
+  const cropTitle = document.getElementById('cropTitle');
+  const cropStage = document.getElementById('cropStage');
+  const cropWrap = document.getElementById('cropWrap');
+  const cropImg = document.getElementById('cropImg');
+  const cropSel = document.getElementById('cropSel');
+  const cropApplyBtn = document.getElementById('cropApply');
+  const cropCancelBtn = document.getElementById('cropCancel');
+  const cropRestoreBtn = document.getElementById('cropRestore');
+
+  // Each snap: { canvas, dataUrl, card, original? } — original holds the uncropped version.
+  const snaps = [];
+
+  function setStatus(text, kind) {
+    statusEl.textContent = text;
+    statusEl.className = kind || '';
+  }
+
+  async function startCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      camMsg.textContent = 'Camera API unavailable. Open this page via http://localhost (run ./run.sh), not as a file.';
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false
+      });
+      video.srcObject = stream;
+      await video.play();
+      camMsg.hidden = true;
+      snapBtn.disabled = false;
+    } catch (err) {
+      camMsg.textContent = 'Could not open the camera: ' + err.message +
+        '. Allow camera access in the browser, and check System Settings → Privacy & Security → Camera.';
+    }
+  }
+
+  function toBlob(canvas) {
+    return new Promise((resolve, reject) =>
+      canvas.toBlob(b => b ? resolve(b) : reject(new Error('Could not encode image')), 'image/png'));
+  }
+
+  // Values are passed as promises so Safari keeps the click gesture while they encode.
+  async function writeClipboard(items, okText) {
+    try {
+      if (!navigator.clipboard || !window.ClipboardItem) {
+        throw new Error('Clipboard API unavailable — open via http://localhost');
+      }
+      await navigator.clipboard.write([new ClipboardItem(items)]);
+      setStatus(okText, 'ok');
+    } catch (err) {
+      setStatus('Copy failed: ' + err.message, 'err');
+    }
+  }
+
+  function copyOne(snap) {
+    const n = snaps.indexOf(snap) + 1;
+    writeClipboard({ 'image/png': toBlob(snap.canvas) }, `Copied snap ${n} ✓`);
+  }
+
+  // Stack every snap vertically into one image, scaled down to stay within browser canvas limits.
+  function stitch() {
+    const GAP = 16;
+    const MAX_AREA = 16000000;
+    const width = Math.max(...snaps.map(s => s.canvas.width));
+    const heights = snaps.map(s => s.canvas.height * width / s.canvas.width);
+    const fullHeight = heights.reduce((a, b) => a + b, 0) + GAP * (snaps.length - 1);
+    const scale = Math.min(1, Math.sqrt(MAX_AREA / (width * fullHeight)));
+    const out = document.createElement('canvas');
+    out.width = Math.round(width * scale);
+    out.height = Math.round(fullHeight * scale);
+    const ctx = out.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, out.width, out.height);
+    let y = 0;
+    snaps.forEach((s, i) => {
+      const h = heights[i] * scale;
+      ctx.drawImage(s.canvas, 0, y, out.width, h);
+      y += h + GAP * scale;
+    });
+    return out;
+  }
+
+  function copyAll() {
+    if (!snaps.length) return;
+    const html = snaps.map(s => `<img src="${s.dataUrl}"><br>`).join('\n');
+    writeClipboard({
+      'text/html': new Blob([html], { type: 'text/html' }),
+      'image/png': toBlob(stitch())
+    }, `Copied all ${snaps.length} snaps ✓`);
+  }
+
+  function refresh() {
+    countEl.textContent = snaps.length ? `Snaps (${snaps.length})` : 'Snaps';
+    snaps.forEach((s, i) => {
+      s.card.querySelector('.num').textContent =
+        `#${i + 1} · ${s.canvas.width}×${s.canvas.height}` + (s.original ? ' · cropped' : '');
+    });
+    prevMsg.hidden = snaps.length > 0;
+    copyAllBtn.disabled = clearBtn.disabled = snaps.length === 0;
+    layoutGallery();
+  }
+
+  // Pick the column count that shows the snaps as large as possible while all fit in the pane.
+  // If even the best fit is too small, fall back to a scrolling grid of fixed-size tiles.
+  function layoutGallery() {
+    const n = snaps.length;
+    const st = gallery.style;
+    if (!n) { st.gridTemplateColumns = ''; st.gridTemplateRows = ''; st.gridAutoRows = ''; return; }
+    const GAP = 12, BAR = 38, MIN_IMG_H = 160;
+    const W = gallery.clientWidth - 24, H = gallery.clientHeight - 24;
+    const aspect = snaps.reduce((a, s) => a + s.canvas.width / s.canvas.height, 0) / n;
+    let best = { cols: 1, rows: n, imgH: 0 };
+    for (let cols = 1; cols <= n; cols++) {
+      const rows = Math.ceil(n / cols);
+      const cellW = (W - GAP * (cols - 1)) / cols;
+      const cellH = (H - GAP * (rows - 1)) / rows;
+      const imgH = Math.min(cellW / aspect, cellH - BAR);
+      if (imgH > best.imgH) best = { cols, rows, imgH };
+    }
+    if (best.imgH >= MIN_IMG_H) {
+      st.gridTemplateColumns = `repeat(${best.cols}, minmax(0, 1fr))`;
+      st.gridTemplateRows = `repeat(${best.rows}, minmax(0, 1fr))`;
+      st.gridAutoRows = '';
+    } else {
+      const cols = Math.max(1, Math.floor((W + GAP) / (MIN_IMG_H * aspect + GAP)));
+      const cellW = (W - GAP * (cols - 1)) / cols;
+      st.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+      st.gridTemplateRows = '';
+      st.gridAutoRows = Math.round(cellW / aspect + BAR) + 'px';
+    }
+  }
+
+  function removeSnap(snap) {
+    snaps.splice(snaps.indexOf(snap), 1);
+    snap.card.remove();
+    refresh();
+  }
+
+  function addCard(snap) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <img alt="">
+      <div class="bar">
+        <span class="num"></span>
+        <span class="actions">
+          <button class="small">Copy</button>
+          <button class="small secondary">Crop</button>
+          <button class="small secondary" title="Remove">✕</button>
+        </span>
+      </div>`;
+    card.querySelector('img').src = snap.dataUrl;
+    const [copyBtn, cropBtn, delBtn] = card.querySelectorAll('button');
+    copyBtn.addEventListener('click', () => copyOne(snap));
+    cropBtn.addEventListener('click', () => openCrop(snap));
+    delBtn.addEventListener('click', () => removeSnap(snap));
+    snap.card = card;
+    gallery.appendChild(card);
+    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function snap() {
+    if (snapBtn.disabled) return;
+    // Draw the raw frame (not mirrored) so text on the paper reads correctly.
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    const s = { canvas, dataUrl: canvas.toDataURL('image/png') };
+    snaps.push(s);
+    addCard(s);
+    refresh();
+    copyOne(s);
+  }
+
+  // ---- Crop ----
+  let cropTarget = null;
+  let sel = null;   // selection in displayed-image pixels: { x, y, w, h }
+  let drag = null;
+
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+  function fitCropImg() {
+    cropImg.style.maxWidth = (cropStage.clientWidth - 24) + 'px';
+    cropImg.style.maxHeight = (cropStage.clientHeight - 24) + 'px';
+  }
+
+  function renderSel() {
+    cropSel.hidden = !sel;
+    cropApplyBtn.disabled = !sel;
+    if (!sel) return;
+    Object.assign(cropSel.style, {
+      left: sel.x + 'px', top: sel.y + 'px', width: sel.w + 'px', height: sel.h + 'px'
+    });
+  }
+
+  function openCrop(snap) {
+    cropTarget = snap;
+    sel = null;
+    renderSel();
+    cropTitle.textContent = `Crop snap #${snaps.indexOf(snap) + 1}`;
+    cropRestoreBtn.hidden = !snap.original;
+    cropper.hidden = false;
+    fitCropImg();
+    cropImg.src = snap.dataUrl;
+  }
+
+  function closeCrop() {
+    cropper.hidden = true;
+    cropTarget = null;
+    drag = null;
+  }
+
+  function setSnapImage(snap, canvas, dataUrl) {
+    snap.canvas = canvas;
+    snap.dataUrl = dataUrl;
+    snap.card.querySelector('img').src = dataUrl;
+  }
+
+  function applyCrop() {
+    if (!cropTarget || !sel) return;
+    const snap = cropTarget;
+    const k = snap.canvas.width / cropImg.getBoundingClientRect().width;
+    const sx = Math.round(sel.x * k), sy = Math.round(sel.y * k);
+    const sw = Math.max(1, Math.round(sel.w * k)), sh = Math.max(1, Math.round(sel.h * k));
+    const out = document.createElement('canvas');
+    out.width = sw;
+    out.height = sh;
+    out.getContext('2d').drawImage(snap.canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+    if (!snap.original) snap.original = { canvas: snap.canvas, dataUrl: snap.dataUrl };
+    setSnapImage(snap, out, out.toDataURL('image/png'));
+    closeCrop();
+    refresh();
+    copyOne(snap);
+  }
+
+  function restoreOriginal() {
+    const snap = cropTarget;
+    if (!snap || !snap.original) return;
+    setSnapImage(snap, snap.original.canvas, snap.original.dataUrl);
+    snap.original = null;
+    closeCrop();
+    refresh();
+    copyOne(snap);
+  }
+
+  function pointInImage(e) {
+    const r = cropImg.getBoundingClientRect();
+    return { x: clamp(e.clientX - r.left, 0, r.width), y: clamp(e.clientY - r.top, 0, r.height), r };
+  }
+
+  cropWrap.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    cropWrap.setPointerCapture(e.pointerId);
+    const p = pointInImage(e);
+    const inside = sel && p.x >= sel.x && p.x <= sel.x + sel.w && p.y >= sel.y && p.y <= sel.y + sel.h;
+    drag = inside ? { mode: 'move', start: p, orig: { ...sel } } : { mode: 'new', start: p };
+    if (!inside) { sel = { x: p.x, y: p.y, w: 0, h: 0 }; renderSel(); }
+  });
+
+  cropWrap.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const p = pointInImage(e);
+    const s = drag.start;
+    if (drag.mode === 'new') {
+      sel = { x: Math.min(s.x, p.x), y: Math.min(s.y, p.y), w: Math.abs(p.x - s.x), h: Math.abs(p.y - s.y) };
+    } else {
+      const o = drag.orig;
+      sel = {
+        x: clamp(o.x + p.x - s.x, 0, p.r.width - o.w),
+        y: clamp(o.y + p.y - s.y, 0, p.r.height - o.h),
+        w: o.w, h: o.h
+      };
+    }
+    renderSel();
+  });
+
+  cropWrap.addEventListener('pointerup', () => {
+    drag = null;
+    if (sel && (sel.w < 5 || sel.h < 5)) sel = null;
+    renderSel();
+  });
+
+  cropApplyBtn.addEventListener('click', applyCrop);
+  cropCancelBtn.addEventListener('click', closeCrop);
+  cropRestoreBtn.addEventListener('click', restoreOriginal);
+  window.addEventListener('resize', () => {
+    layoutGallery();
+    if (cropper.hidden) return;
+    // The displayed size changes, so the old selection no longer lines up.
+    fitCropImg();
+    sel = null;
+    renderSel();
+  });
+
+  snapBtn.addEventListener('click', snap);
+  copyAllBtn.addEventListener('click', copyAll);
+  clearBtn.addEventListener('click', () => {
+    snaps.splice(0).forEach(s => s.card.remove());
+    refresh();
+    setStatus('');
+  });
+  mirrorBox.addEventListener('change', () => video.classList.toggle('mirror', mirrorBox.checked));
+  document.addEventListener('keydown', e => {
+    if (!cropper.hidden) {
+      if (e.key === 'Escape') closeCrop();
+      if (e.key === 'Enter') { e.preventDefault(); applyCrop(); }
+      if (e.code === 'Space') e.preventDefault();
+      return;
+    }
+    if (e.code === 'Space' && e.target.tagName !== 'INPUT') {
+      e.preventDefault();
+      snap();
+    }
+  });
+  // Stop Space from also "clicking" whichever button has focus.
+  document.addEventListener('keyup', e => { if (e.code === 'Space') e.preventDefault(); });
+
+  startCamera();
+</script>
+</body>
+</html>
