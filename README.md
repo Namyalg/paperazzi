@@ -6,6 +6,8 @@ A single-file web app with two panes: a live camera on the left and your snaps o
 
 ![Paperazzi demo: snapping three pages, cropping one, and copying all](docs/demo.gif)
 
+🔊 **[Watch the narrated version](docs/demo.mp4)** (31 s, with voice-over)
+
 <sub>Demo recorded in headless Chrome with a simulated camera feed; the clicks, crop and clipboard copies are the real app.</sub>
 
 - **Snap** (or press Space): takes a photo and copies it to the clipboard as a PNG
